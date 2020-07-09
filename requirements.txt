@@ -1,0 +1,3 @@
+neat-python==0.92
+numpy==1.19.0
+pygame==1.9.6

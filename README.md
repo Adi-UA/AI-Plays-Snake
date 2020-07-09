@@ -19,12 +19,21 @@ If you're not intersted in the AI stuff and just want to play the game, then (as
 All the modules used to create the game can be found in `gamesrc`
 
 # Using
-## Before Running (Assuming you have pip)
-* Run `pip install pygame` in the terminal
-* Run `pip install neat-python`
-* Run `pip install numpy`
+### Before Running (Assuming you have pip, git and an appropriate version of python)
 
-**Note:** I am using `pygame 1.9.6`, `neat-python 0.92`, `numpy 1.18.4` and `python 3.7.4`
+* If you're not worried about breaking anything in your environment:
+    
+    * Run `pip install -r requirements.txt`
+
+* Otherwise, if you're trying to install the dependencies individually:
+    * Run `pip install pygame`
+    * Run `pip install neat-python`
+    * Run `pip install numpy`
+
+Then, clone the repo with: `git clone https://github.com/Adi-UA/AI-Plays-Snake.git`.
+
+**Note:** I am using `python 3.7.x`, `pygame 1.9.6`, `neat-python 0.92`, `numpy 1.19.0`.
+
 ## Running
 ### Training (Optional)
 If you don't want to use the trained model that comes with this repository in `best_model.pickle`, simply run the `trainAI.py` module. Running the module will train the model for upto 50 generations with a population size of 1000 in each generation; when it finds a satisfactory model, it will store it inside `best_model.pickle`.

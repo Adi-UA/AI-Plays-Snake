@@ -213,7 +213,7 @@ def run(config_path):
 
 def main():
     local_dir = os.path.dirname(__file__)
-    config_path = os.path.join(local_dir, r"resources\config-feedforward.txt")
+    config_path = os.path.join(local_dir, "resources/config-feedforward.txt")
     run(config_path)
 
 
