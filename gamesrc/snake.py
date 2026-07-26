@@ -1,6 +1,3 @@
-import pygame
-
-
 class Snake:
     """
     This class represents the snake in the game.

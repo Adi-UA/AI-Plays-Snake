@@ -1,9 +1,8 @@
-import pygame
 import random
-from resources.reference import *
-from gamesrc.food import Food
 
-# Some common methods used throughout the project.
+from gamesrc.constants import GRID_SIZE
+from gamesrc.food import Food
+from gamesrc.sensors import cast_food_rays, cast_obstacle_rays
 
 
 def make_food_decision(snake, food):
@@ -72,31 +71,32 @@ def make_food_decision(snake, food):
     return go_front, go_left, go_right
 
 
-def make_decision(network, grid, snake, food):
+def build_inputs(grid, snake, food, mode="legacy"):
     """
-    This function calculates the network's output when activated with the
-    relevant input values.
+    Builds the neural network input vector for the given game state.
 
     Arguments:
-        network  -- The network that must create an output
         grid {Grid} -- The grid being used in the game
         snake {Snake} -- The snake being used in the game
-        food {Food} -- the food being used in the game
+        food {Food} -- The food being used in the game
+        mode {str} -- "legacy" for the original 11-value binary adjacency
+        plus food-direction vector, or "raycast" for the 16-value NERO-style
+        directional distance sensors.
 
     Returns:
-        list -- the decision list from activatation.
+        tuple of float -- the input vector for `network.activate`.
     """
+    if mode == "legacy":
+        adjacent = snake.get_8_adjacent(grid)
+        go_front, go_left, go_right = make_food_decision(snake, food)
+        return tuple(adjacent + [go_front, go_left, go_right])
 
-    adjacent = snake.get_8_adjacent(grid)
+    if mode == "raycast":
+        obstacle_rays = cast_obstacle_rays(snake)
+        food_rays = cast_food_rays(snake, food)
+        return tuple(obstacle_rays + food_rays)
 
-    go_front, go_left, go_right = make_food_decision(snake, food)
-
-    # Make a decision based on the 8 adjacent squares and food's relative
-    # position
-    inputs = tuple(adjacent + [go_front, go_left, go_right])
-
-    decision = network.activate(inputs)
-    return decision
+    raise ValueError(f"Unknown input mode: {mode!r}")
 
 
 def generate_food(grid, snake):
@@ -113,6 +113,6 @@ def generate_food(grid, snake):
     """
     while True:
         # Don't want it to be too close to the edge for visual reasons.
-        x, y = random.randrange(2, 28), random.randrange(2, 28)
+        x, y = random.randrange(2, GRID_SIZE - 2), random.randrange(2, GRID_SIZE - 2)
         if (x, y) not in snake.coords:
             return Food(grid, x, y)

@@ -1,220 +1,154 @@
-import pygame
-import numpy
-import random
-import neat
+import argparse
+import functools
 import os
 import pickle
-from resources.reference import *
-from resources.util import *
-from gamesrc.grid import Grid
-from gamesrc.snake import Snake
-from gamesrc.food import Food
+
+import neat
+
+from gamesrc.episode import WIN_SCORE, run_episode
+from gamesrc.render import init_display, make_step_callback
+
+CONFIG_BY_MODE = {
+    "legacy": os.path.join("resources", "config-feedforward.txt"),
+    "raycast": os.path.join("resources", "config-feedforward-raycast.txt"),
+}
+
+MODEL_BY_MODE = {
+    "legacy": "best_model.pickle",
+    "raycast": "best_model_raycast.pickle",
+}
+
+RENDER_FPS = 1000  # matches the original "zooming" training visuals
 
 
-def has_failed(snake, genome):
+def eval_genome(genome, config, input_mode, on_step=None):
     """
-    This function checks to see if the snake has met any of the fail conditions.
-    Since the grid is a standard 30 by 30 grid, the grid object is not required
-    to check extremes.
+    Evaluates a single genome and returns its fitness. Once a genome plays
+    well enough to reach `episode.WIN_SCORE`, its network is saved to the
+    model file for this input mode.
 
     Arguments:
-        snake {Snake} -- The snake whose status is to be found.
-        genome -- The genome controlling this snake
+        genome -- The genome to evaluate.
+        config -- The NEAT config the genome was created under.
+        input_mode {str} -- "legacy" or "raycast".
+        on_step -- Optional render callback. Only used in single-process
+        `--render` mode; never passed under `ParallelEvaluator`.
 
     Returns:
-        boolean -- true if it has met a fail condition and False otherwise.
+        float -- The genome's fitness.
     """
-    x, y = snake.coords[0][0], snake.coords[0][1]
-    if ((x, y) in snake.coords[1:]):
-        genome.fitness -= 3  # Loses a lot of points for hitting itself
-        return True
-    elif x < 0 or x > 29 or y < 0 or y > 29:
-        # Loses slightly less pints for hitting the wall because inputs used for
-        # the NN generally mean this case is already rare.
+    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    result = run_episode(net, input_mode=input_mode, on_step=on_step)
 
-        genome.fitness -= 2.5
-        return True
-    else:
-        return False
+    if result["score"] >= WIN_SCORE:
+        with open(MODEL_BY_MODE[input_mode], "wb") as model_file:
+            pickle.dump(net, model_file)
+
+    return result["fitness"]
 
 
-def draw(window, snake, food, score):
+def eval_genomes_with_render(genomes, config, input_mode, on_step):
     """
-    This function draws and updates the pygame window with the given information.
-
-    Arguments:
-        window {Surface} -- The active PyGame window
-        snake {Snake} -- The snake in the game
-        food {Food} -- The food in the game
-        score {int} -- The current score
+    Sequential fitness function used only for `--render`, since a shared
+    pygame display can only be drawn to from a single process.
     """
-
-    global ANIMATION_TICK
-    ANIMATION_TICK -= 1  # Used to change food color
-
-    window.fill((0, 0, 51))
-
-    # Food color changing and drawing is handled here
-    if ANIMATION_TICK == 0:
-        global FOOD_RGB
-        FOOD_RGB = (
-            random.randrange(
-                50, 255), random.randrange(
-                50, 255), random.randrange(
-                50, 255))
-        FOOD_IMG.fill(FOOD_RGB)
-        ANIMATION_TICK = 25
-    else:
-        window.blit(FOOD_IMG, (food.x * 15, food.y * 15))
-
-    # Draw snake
-    for i, coord in enumerate(snake.coords):
-        x = coord[0] * 15
-        y = coord[1] * 15
-
-        if i == 0:
-            head = pygame.Surface((15, 15))
-            head.fill((255, 255, 255))
-            WINDOW.blit(head, (x, y))
-        else:
-            WINDOW.blit(SNAKE_IMG, (x, y))
-
-    # Draw Score
-    score_txt = STAT_FONT.render("Score: " + str(score), 1, (255, 255, 255))
-    window.blit(
-        score_txt,
-        (WIN_WIDTH - 10 - score_txt.get_width(), 10))  # top right of screen
-
-    pygame.display.update()
-
-
-def eval(genomes, config):
-    """
-    This function runs the game and evalutes the NNs formed from the given config.
-    """
-
-    global FOOD_RGB
-
     for _, genome in genomes:
-
-        network = neat.nn.FeedForwardNetwork.create(genome, config)
-        genome.fitness = 0
-
-        grid = Grid()
-        snake = Snake()
-        food = generate_food(grid, snake)
-        score = 0
-
-        # Used to track time since distance from current food and time since
-        # last food
-        food_cur_dist = (abs(food.x -
-                             snake.coords[0][0]), abs(food.y -
-                                                      snake.coords[0][1]))
-        last_food = pygame.time.get_ticks()
-
-        isRunning = True
-        while isRunning:
-            game_clock.tick(1000)  # I am speed
-
-            # Time since last food in seconds
-            time_since_food = (pygame.time.get_ticks() - last_food) / 1000
-
-            # At 1000fps if it hasn't found food in 4 seconds it is definitely
-            # self looping so we stop it.
-            if time_since_food >= 4:
-                genome.fitness -= 500
-                isRunning = False
-                break
-
-            # Handle Quitting
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    isRunning = False
-                    pygame.quit()
-                    quit()
-
-            # Make a decision and use it
-            decision = make_decision(network, grid, snake, food)
-            max_val = max(decision)
-
-            # Decision size is 3 and each index from 0 to 2 represents L,R and
-            # nothing. We simply choose the maximum of these three to make a
-            # decision.
-            if max_val == decision[0]:
-                snake.move(grid, "L")
-            elif max_val == decision[1]:
-                snake.move(grid, "R")
-            else:
-                snake.tick(grid)
-
-            # Update current distance to food
-            food_prev_dist = food_cur_dist
-            food_cur_dist = (
-                abs(food.x - snake.coords[0][0]), abs(food.y - snake.coords[0][1]))
-
-            # If it moved closer to the food give it points and if it moved away
-            # take away more points. On the whole self loops lose points
-            if food_cur_dist[0] < food_prev_dist[0] or food_cur_dist[1] < food_prev_dist[1]:
-                genome.fitness += 1
-            else:
-                genome.fitness -= 1.5
-
-            # Check collision
-            if snake.collide(food):
-                last_food = pygame.time.get_ticks()  # Reset last food timer
-                genome.fitness += 4  # Lots of fitness
-                score += 1
-                snake.elongate(grid)
-
-                # RGB snakes are essential for training /s
-                SNAKE_IMG.fill(FOOD_RGB)
-
-                food = generate_food(grid, snake)
-
-            # Check for failure and deduct points accordingly
-            if has_failed(snake, genome):
-                isRunning = False
-                break
-
-            draw(WINDOW, snake, food, score)
-
-            # A score of 45 generally means it has gotten as good as it could
-            # have, so we store the model
-            if score >= 45:
-                best_model = network
-                nn_file = open("best_model.pickle", "wb")
-                pickle.dump(best_model, nn_file)
-                nn_file.close()
-
-                isRunning = False
-                break
+        genome.fitness = eval_genome(genome, config, input_mode, on_step)
 
 
-def run(config_path):
-    """
-    This function runs each generation of NNs using the configuration file
-    passed to it.
+def build_config(args):
+    config_path = args.config or CONFIG_BY_MODE[args.input_mode]
+    config = neat.config.Config(
+        neat.DefaultGenome,
+        neat.DefaultReproduction,
+        neat.DefaultSpeciesSet,
+        neat.DefaultStagnation,
+        config_path,
+    )
+    if args.pop_size is not None:
+        config.pop_size = args.pop_size
+    return config
 
-    Arguments:
-        config_path  -- Path to the NNs config file
-    """
-    config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
-                                neat.DefaultSpeciesSet, neat.DefaultStagnation,
-                                config_path)
 
-    population = neat.Population(config)
+def build_population(args, config):
+    if args.resume:
+        return neat.Checkpointer.restore_checkpoint(args.resume, new_config=config)
+    return neat.Population(config, seed=args.seed)
+
+
+def run(args):
+    config = build_config(args)
+    population = build_population(args, config)
+
     population.add_reporter(neat.StdOutReporter(True))
+    population.add_reporter(neat.StatisticsReporter())
 
-    stats = neat.StatisticsReporter()
-    population.add_reporter(stats)
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
+    population.add_reporter(neat.Checkpointer(
+        generation_interval=args.checkpoint_every,
+        filename_prefix=os.path.join(args.checkpoint_dir, "neat-checkpoint-"),
+    ))
 
-    winner = population.run(eval, 50)
+    try:
+        if args.render:
+            display = init_display()
+            on_step = make_step_callback(display, RENDER_FPS)
+            fitness_function = functools.partial(
+                eval_genomes_with_render, input_mode=args.input_mode, on_step=on_step,
+            )
+            population.run(fitness_function, args.generations)
+        else:
+            evaluator = neat.ParallelEvaluator(
+                args.workers,
+                functools.partial(eval_genome, input_mode=args.input_mode),
+                seed=args.seed,
+            )
+            population.run(evaluator.evaluate, args.generations)
+    finally:
+        # Save whatever the best genome is so far, even if training raises
+        # partway through (e.g. a crash during reproduction) -- otherwise a
+        # failure this late would lose everything the run had achieved.
+        save_best_genome(population, config, args.input_mode)
+
+
+def save_best_genome(population, config, input_mode):
+    """
+    Saves the best genome seen across the whole run. `eval_genome` already
+    saves a genome as soon as it reaches WIN_SCORE mid-training, but a run
+    that never crosses that bar would otherwise end with nothing on disk.
+    """
+    if population.best_genome is None:
+        return
+    net = neat.nn.FeedForwardNetwork.create(population.best_genome, config)
+    with open(MODEL_BY_MODE[input_mode], "wb") as model_file:
+        pickle.dump(net, model_file)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train a NEAT-evolved snake-playing network.")
+    parser.add_argument("--generations", type=int, default=150)
+    parser.add_argument("--pop-size", type=int, default=None,
+                         help="Overrides pop_size in the config file.")
+    parser.add_argument("--workers", type=int, default=os.cpu_count(),
+                         help="Worker processes for parallel evaluation. Ignored with --render.")
+    parser.add_argument("--render", action="store_true",
+                         help="Watch training in a single process instead of running headless "
+                              "in parallel.")
+    parser.add_argument("--input-mode", choices=["legacy", "raycast"], default="legacy")
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--checkpoint-dir", default="checkpoints")
+    parser.add_argument("--checkpoint-every", type=int, default=10)
+    parser.add_argument("--resume", default=None,
+                         help="Path to a checkpoint file to resume training from.")
+    parser.add_argument("--config", default=None,
+                         help="Overrides the config file resolved from --input-mode.")
+    return parser.parse_args()
 
 
 def main():
-    local_dir = os.path.dirname(__file__)
-    config_path = os.path.join(local_dir, "resources/config-feedforward.txt")
-    run(config_path)
+    args = parse_args()
+    run(args)
 
 
 if __name__ == "__main__":

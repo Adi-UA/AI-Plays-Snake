@@ -1,6 +1,3 @@
-import pygame
-
-
 class Food:
     """
     This class represents a food object in the snake game.

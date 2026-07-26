@@ -1,0 +1,6 @@
+target-version = "py310"
+line-length = 100
+exclude = ["venv", "checkpoints"]
+
+[lint]
+select = ["E", "F", "I", "UP"]
