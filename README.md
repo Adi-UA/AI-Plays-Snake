@@ -8,8 +8,8 @@
     <th>Raycast (NERO-style sensors)</th>
   </tr>
   <tr>
-    <td><video src="https://github.com/Adi-UA/AI-Plays-Snake/raw/master/assets/legacy-demo.mp4" controls muted loop width="380"></video></td>
-    <td><video src="https://github.com/Adi-UA/AI-Plays-Snake/raw/master/assets/raycast-demo.mp4" controls muted loop width="380"></video></td>
+    <td><img src="assets/legacy-demo.gif" width="380" alt="Legacy-mode trained network playing snake"></td>
+    <td><img src="assets/raycast-demo.gif" width="380" alt="Raycast-mode trained network playing snake"></td>
   </tr>
 </table>
 
